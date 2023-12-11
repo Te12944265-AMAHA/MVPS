@@ -142,7 +142,7 @@ def get_disparity_vis(src: np.ndarray, scale: float = 1.0) -> np.ndarray:
     Returns:
         dst (np.ndarray): scaled input array
     """
-    dst = np.clip(src.astype(np.float32) * scale / 16.0, a_min=0, a_max=255)
+    dst = np.maximum(src.astype(np.float32) * scale / 16.0, 0)
     print(dst.max(), dst.min())
     dst = dst.astype(np.uint8)
     return dst
@@ -155,7 +155,8 @@ def disparity_from_rectified(img1, img2, vis=False):
     # disparity range is tuned for 'aloe' image pair
     win_size = 1
     min_disp = 0
-    max_disp = num_disp = 96
+    max_disp = 48
+    num_disp = 160
 
     if False:
         # Applying stereo image rectification on the left image
@@ -193,7 +194,7 @@ def disparity_from_rectified(img1, img2, vis=False):
         blockSize=win_size,
         P1=8 * 3 * win_size**2,
         P2=32 * 3 * win_size**2,
-        preFilterCap=40,
+        preFilterCap=10,
         speckleWindowSize=0,
         mode=2,  # MODE_SGBM_3WAY
     )
@@ -204,7 +205,7 @@ def disparity_from_rectified(img1, img2, vis=False):
         blockSize=win_size,
         P1=8 * 3 * win_size**2,
         P2=32 * 3 * win_size**2,
-        preFilterCap=40,
+        preFilterCap=10,
         speckleWindowSize=0,
         mode=2,  # MODE_SGBM_3WAY
     )
@@ -213,8 +214,8 @@ def disparity_from_rectified(img1, img2, vis=False):
     disparity2 = stereo2.compute(img2, img1)
 
     # Filtering wls
-    lamb = 8000.0
-    sig = 1.0
+    lamb = 5000.0
+    sig = 1
 
     wls_filter = cv2.ximgproc.createDisparityWLSFilter(stereo1)
     wls_filter.setLambda(lamb)
@@ -238,14 +239,20 @@ def disparity_from_rectified(img1, img2, vis=False):
     vis_mult = 1.0
     raw_disp_vis = get_disparity_vis(disparity1, vis_mult)
     if vis:
-        cv2.imshow("img", (raw_disp_vis * 2.0).astype(np.uint8))
-        cv2.waitKey(0)
+        plt.imshow(raw_disp_vis)
+        plt.show()
+        plt.close("all")
+        # cv2.imshow("img", (raw_disp_vis * 5.0).astype(np.uint8))
+        # cv2.waitKey(0)
     filtered_disp_vis = get_disparity_vis(disparity1_filtered, vis_mult)
     if vis:
-        cv2.imshow("img", (filtered_disp_vis * 2.0).astype(np.uint8))
-        cv2.waitKey(0)
-        cv2.imshow("img", conf_map)
-        cv2.waitKey(0)
+        plt.imshow(filtered_disp_vis)
+        plt.show()
+        plt.close("all")
+        # cv2.imshow("img", (filtered_disp_vis * 5.0).astype(np.uint8))
+        # cv2.waitKey(0)
+        # cv2.imshow("img", conf_map)
+        # cv2.waitKey(0)
 
     # NOTE: Code returns a 16bit signed single channel image,
     # CV_16S containing a disparity map scaled by 16. Hence it
@@ -335,20 +342,25 @@ def plot_depth(Z):
 
 
 if __name__ == "__main__":
-    img1 = cv2.imread("data/img1.jpg")
-    img2 = cv2.imread("data/img2.jpg")
+    img1 = cv2.imread("data/bunny1_nf.png")
+    img2 = cv2.imread("data/bunny2_nf.png")
     # img1 = cv2.imread("data/desk1.png")
     # img2 = cv2.imread("data/desk2.png")
 
     img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
     img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
     disparity_map = disparity_from_rectified(img1, img2, vis=True)
+    
+    baseline = 0.2  # Example baseline in meters
 
-    baseline = 1.0  # Example baseline in meters
-    focal_length = 500  # Example focal length in pixels
+    sensor_hsize_mm = 36
+    focal_length_mm = 50
+    img_w = img1.shape[1]
+
+    focal_length_px = focal_length_mm / (sensor_hsize_mm/img_w)
 
     # Convert disparity map to depth map
-    depth_map = disparity_to_depth(disparity_map, baseline, focal_length)
+    depth_map = disparity_to_depth(disparity_map, baseline, focal_length_px)
     # clip and normalize depth map
     max_depth = 20
     depth_map = np.minimum(depth_map, max_depth)
