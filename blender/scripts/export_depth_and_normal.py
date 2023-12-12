@@ -4,15 +4,7 @@ import matplotlib.pyplot as plt
 import multiprocessing as mp
 from skimage.io import imsave
 import os
-
-def print(data):
-    for window in bpy.context.window_manager.windows:
-        screen = window.screen
-        for area in screen.areas:
-            if area.type == 'CONSOLE':
-                override = {'window': window, 'screen': screen, 'area': area}
-                bpy.ops.console.scrollback_append(override, text=str(data), type="OUTPUT") 
-                
+            
 def get_depth():
     """Obtains depth map from Blender render.
     :return: The depth map of the rendered camera view as a numpy array of size (H,W).

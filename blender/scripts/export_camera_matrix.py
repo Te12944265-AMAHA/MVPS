@@ -1,14 +1,6 @@
 import bpy
 from mathutils import Matrix, Vector
-
-def print(data):
-    for window in bpy.context.window_manager.windows:
-        screen = window.screen
-        for area in screen.areas:
-            if area.type == 'CONSOLE':
-                override = {'window': window, 'screen': screen, 'area': area}
-                bpy.ops.console.scrollback_append(override, text=str(data), type="OUTPUT") 
-                
+            
 #---------------------------------------------------------------
 # 3x4 P matrix from Blender camera
 #---------------------------------------------------------------
@@ -82,14 +74,18 @@ def get_calibration_matrix_K_from_blender(camd):
 #       - y is down (to align to the actual pixel coordinates 
 #         used in digital images)
 #       - right-handed: positive z look-at direction
-# TODO we want the normal map to have
+# In the paper, the normal maps have
 #   x (right), y (up), z (out of image)
 def get_3x4_RT_matrix_from_blender(cam):
     # bcam stands for blender camera
+#    R_bcam2cv = Matrix(
+#        ((1, 0,  0),
+#        (0, -1, 0),
+#        (0, 0, -1)))
     R_bcam2cv = Matrix(
         ((1, 0,  0),
-        (0, -1, 0),
-        (0, 0, -1)))
+        (0, 1, 0),
+        (0, 0, 1)))
 
     # Transpose since the rotation is object rotation, 
     # and we want coordinate rotation
@@ -99,6 +95,10 @@ def get_3x4_RT_matrix_from_blender(cam):
     # Use matrix_world instead to account for all constraints
     location, rotation = cam.matrix_world.decompose()[0:2]
     R_world2bcam = rotation.to_matrix().transposed()
+#    print("loc")
+#    print(location)
+#    print("rot")
+#    print(rotation.to_matrix())
 
     # Convert camera location to translation vector used in coordinate changes
     # T_world2bcam = -1*R_world2bcam @ cam.location
@@ -107,8 +107,8 @@ def get_3x4_RT_matrix_from_blender(cam):
     print(T_world2bcam)
 
     # Build the coordinate transform matrix from world to computer vision camera
-    R_world2cv = R_bcam2cv@R_world2bcam
-    T_world2cv = R_bcam2cv@T_world2bcam
+    R_world2cv = R_bcam2cv @ R_world2bcam
+    T_world2cv = R_bcam2cv @ T_world2bcam
 
     # put into 3x4 matrix
     RT = Matrix((
@@ -121,7 +121,7 @@ def get_3x4_RT_matrix_from_blender(cam):
 def get_3x4_P_matrix_from_blender(cam):
     K = get_calibration_matrix_K_from_blender(cam.data)
     RT = get_3x4_RT_matrix_from_blender(cam)
-    return K@RT, K, RT
+    return K @ RT, K, RT
 
 # ----------------------------------------------------------
 if __name__ == "__main__":
@@ -135,8 +135,8 @@ if __name__ == "__main__":
     print("P")
     print(P)
 
-    print("==== 3D Cursor projection ====")
-    pc = P @ bpy.context.scene.cursor.location
-    pc /= pc[2]
-    print("Projected cursor location")
-    print(pc)
+#    print("==== 3D Cursor projection ====")
+#    pc = P @ bpy.context.scene.cursor.location
+#    pc /= pc[2]
+#    print("Projected cursor location")
+#    print(pc)

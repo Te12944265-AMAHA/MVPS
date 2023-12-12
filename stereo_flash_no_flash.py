@@ -181,9 +181,25 @@ if __name__ == "__main__":
     img_f = imread("data/bunny_f.png").astype(np.float32) / 255.0
     img_nf = lRGB2XYZ(gamma_decode(img_nf))[:,:,1]
     img_f = lRGB2XYZ(gamma_decode(img_f))[:,:,1]
-    normals0 = imread("data/bunny_normal_map.png").astype(np.float32) / 255.0
+    cam_matrix_save_path = "data/Camera.002_matrix.npz"
+    maps_save_path = "data/Camera.002_maps.npz"
+    with np.load(cam_matrix_save_path) as X:
+        K, RT = [X[i] for i in ("K", "RT")]
+    print(RT)
+    with np.load(maps_save_path) as X:
+        normals0, depth_map = [X[i] for i in ("normal_map", "depth_map")]
+    h, w, _ = normals0.shape
+    print(normals0.max(), normals0.min())
+    norm = np.linalg.norm(normals0, axis=2).reshape((h, w, 1))
+    print(norm.max(), norm.min())
+    denom = np.where(norm == 0, 1e-5, norm)
+    normals0 = np.where(norm == 0, 0.0, normals0/denom)
+    normals0 = (RT[:3,:3] @ normals0.reshape((h*w, 3)).T).T.reshape((h, w, 3))
+    normals_vis = (normals0 + 1) / 2.0
+    normals_vis = np.where(norm == 0, 1.0, normals_vis)
+    print(normals0.max(), normals0.min())
     # TODO transform to camera coordinate
-    plt.imshow(normals0, cmap="gray")
+    plt.imshow(normals_vis, cmap="gray")
     plt.title("initial normal map")
     plt.axis("off")
     plt.show()
