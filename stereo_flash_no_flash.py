@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 import copy
 import argparse
 import os
-import patchify
 from scipy.ndimage import gaussian_filter
 from cp_hw2 import lRGB2XYZ
 from mpl_toolkits.mplot3d import Axes3D
@@ -20,6 +19,8 @@ from utils import gamma_decode
 from scipy.optimize import least_squares, minimize, rosen
 from scipy.linalg import lstsq
 import time
+from multiprocessing import Pool
+from tqdm import tqdm
 
 lamb1 = 0.1
 lamb2 = 10.0
@@ -27,7 +28,9 @@ lamb2 = 10.0
 patch_size_x = 25
 patch_size_y = 25
 
-count = 0
+#count = 0
+
+processes_count = 10
 
 def get_spherical_harmonics(ns):
     """
@@ -62,7 +65,7 @@ def compute_global_lighting(normals, mnf, mf, fg_mask):
     fg_pix_idxs = np.argwhere(fg_mask.flatten()).flatten()
     ns = np.reshape(normals, (-1, 3)) # (h*w, 3)
     ns = ns[fg_pix_idxs, :] # (p, 3)
-    N = get_spherical_harmonics(ns) / ns[:, 2].reshape((-1, 1))  # (p, 9)
+    N = get_spherical_harmonics(ns) / -ns[:, 2].reshape((-1, 1))  # (p, 9)
     m = get_ratio_img(mnf, mf).flatten()[fg_pix_idxs]  # (p, )
     lp = lstsq(N, m)[0]
     return lp
@@ -99,6 +102,9 @@ def calc_shading_confidence(mnf, mf, fg_mask):
 
 
 def calc_cost_shading(ns, lp, mnf, mf):
+    """
+    [Deprecated]
+    """
     hn = get_spherical_harmonics(ns)
     # (h*w, )
     cost = (hn @ lp).flatten() + ns[:, 2] * get_ratio_img(mnf, mf).flatten()
@@ -107,6 +113,8 @@ def calc_cost_shading(ns, lp, mnf, mf):
 
 def calc_cost_normal(ns, ns0):
     """
+    [Deprecated]
+
     ``ns``, ``ns0``: (p, 3)
     """
     cost = 1 - np.sum(ns * ns0, axis=-1)
@@ -114,12 +122,17 @@ def calc_cost_normal(ns, ns0):
 
 
 def calc_cost_unit_len(ns):
+    """
+    [Deprecated]
+    """
     cost = 1 - np.sum(ns * ns, axis=-1)
     return cost ** 2
 
 
 def calc_cost(normals, normals0, lp, mnf, mf, fg_mask):
     """
+    [Deprecated]
+
     Calculate the cost of the energy function, containing 3 terms: 
     1) shading constraint
     2) normal constraint
@@ -133,8 +146,8 @@ def calc_cost(normals, normals0, lp, mnf, mf, fg_mask):
 
     Return (h*w, ) residual per pixel
     """
-    global count
-    count += 1
+    #global count
+    #count += 1
     h, w, _ = normals.shape
     ns = np.reshape(normals, (h * w, 3))
     ns0 = np.reshape(normals0, (h * w, 3))
@@ -148,52 +161,12 @@ def calc_cost(normals, normals0, lp, mnf, mf, fg_mask):
         + lamb2 * cost_unit_len
     ) # (h*w, )
     cost = np.where(fg_mask.flatten(), cost, 0.0) # mask out background
-    # if count == 1 or count == 1000:
-    #     print(normals0[0,0,:])
-    if count == 2000:
-        print(count)
-        plt.subplot(2, 4, 1)
-        plt.imshow((normals+1)/2)
-        plt.title("estimated")
-        plt.axis("off")
-        plt.subplot(2, 4, 2)
-        plt.imshow((normals0+1)/2)
-        plt.title("initial")
-        plt.axis("off")
-        plt.subplot(2, 4, 3)
-        plt.imshow(weight.reshape((h, w)))
-        plt.title("weight")
-        plt.axis("off")
-        plt.subplot(2, 4, 4)
-        denom = np.where(mnf == 0, 1e-5, mnf)
-        r = mf / denom
-        r = np.where(mnf == 0, 0, r)
-        plt.imshow(r.reshape((h, w)))
-        plt.title("ratio")
-        plt.axis("off")
-        plt.subplot(2, 4, 5)
-        plt.imshow(cost_shading.reshape((h, w)))
-        plt.title("cost_shading")
-        plt.axis("off")
-        plt.subplot(2, 4, 6)
-        plt.imshow(cost_normal.reshape((h, w)))
-        plt.title("cost_normal")
-        plt.axis("off")
-        plt.subplot(2, 4, 7)
-        plt.imshow(cost_unit_len.reshape((h, w)))
-        plt.title("cost_unit_len")
-        plt.axis("off")
-        plt.subplot(2, 4, 8)
-        plt.imshow(cost.reshape(h, w))
-        plt.title("cost")
-        plt.axis("off")
-        plt.show()
-        plt.close("all")
-        quit()
     return cost
 
 def calc_cost_wrapper(x, x0, lp, mnf, mf, fg_mask):
     """
+    [Deprecated]
+
     Rewrite calc_cost function in a way that least_square optimizer understands
 
     ``x``: (h*w*3, ) normal parameters to be optimized
@@ -210,8 +183,65 @@ def calc_cost_wrapper(x, x0, lp, mnf, mf, fg_mask):
     cost = calc_cost(normals, normals0, lp, mnf, mf, fg_mask)
     return cost
 
+def calc_cost_pix(x, _x0, _lp, _weight, _ratio_image):
+    """
+    ``x``: (3, ) Variable to be optimized
+    ``_x0``: (3, )
+    ``_lp``: (9, )
+    ``_weight``, ``_ratio_image``: scalar
 
-def optimize(normals0, lp, mnf, mf, fg_mask):
+    Return a float
+    """
+    _hn = get_spherical_harmonics(x.reshape((1,3))).flatten()
+    # cost_shading = calc_cost_shading(x, _lp, _mnf, _mf)
+    cost_shading = np.dot(_hn, _lp) + x[2] * _ratio_image
+
+    # cost_normal = calc_cost_normal(x, _x0)
+    cost_normal = 1 - np.dot(x, _x0)
+
+    #cost_unit_len = calc_cost_unit_len(ns)
+    cost_unit_len = 1 - np.dot(x, x)
+
+    cost = (
+        _weight * cost_shading**2
+        + lamb1 * cost_normal**2
+        + lamb2 * cost_unit_len**2
+    )
+    return cost
+
+def optimize_patch(args):
+    #assert len(args) == 2
+    global normals0, lp, fg_mask, weight, ratio_image
+    i, j = args
+    i_end = i + patch_size_y
+    j_end = j + patch_size_x
+    fg_mask_patch = fg_mask[i:i_end, j:j_end]
+    x0_patch = normals0[i:i_end, j:j_end, :]
+    weight_patch = weight[i:i_end, j:j_end]
+    ratio_image_patch = ratio_image[i:i_end, j:j_end]
+
+    normals_patch = copy.deepcopy(x0_patch)
+    for r in range(patch_size_y):
+        for c in range(patch_size_x):
+            if not fg_mask_patch[r,c]:
+                continue
+            x0_pix = x0_patch[r, c, :]
+            res = minimize(calc_cost_pix, x0_pix, method="BFGS", args=(x0_pix, lp, weight_patch[r,c], ratio_image_patch[r,c]))
+            if res.success:
+                # fill in pixel
+                normals_patch[r, c, :] = res.x
+    return (i, j), normals_patch
+
+def init_worker(_normals0, _lp, _fg_mask, _weight, _ratio_image):
+    global normals0, lp, fg_mask, weight, ratio_image
+    normals0 = _normals0
+    lp = _lp
+    fg_mask = _fg_mask
+    weight = _weight
+    ratio_image = _ratio_image
+
+
+def optimize(_normals0, _lp, _mnf, _mf, _fg_mask):
     """
     Given initial guess of the normal map, refine normal map
 
@@ -222,57 +252,32 @@ def optimize(normals0, lp, mnf, mf, fg_mask):
 
     Return (h, w, 3) refined normal map
     """
-    global count
-    h, w, _ = normals0.shape
+    #global count
+    h, w, _ = _normals0.shape
     #x0 = normals0.flatten()
-    # TODO break into patches
-    normals = np.ones_like(normals0)
-    residuals = np.zeros_like(mnf)
-    num_pix_patch = patch_size_y*patch_size_x
-    jac_sparsity_patch = np.zeros((num_pix_patch, num_pix_patch*3))
-    for i in range(num_pix_patch):
-        jac_sparsity_patch[i, i*3 : i*3+3] = np.ones(3)
+
+    normals = copy.deepcopy(_normals0)
+    _weight = calc_shading_confidence(_mnf, _mf, _fg_mask)
+    _ratio_image = get_ratio_img(_mnf, _mf)
+
+    # Run normal refinement for each patch in parallel.
+    # In each patch, run optimization for each pixel sequentially
+    pool = Pool(processes_count, initializer=init_worker, initargs=(_normals0, _lp, _fg_mask, _weight, _ratio_image, ))
+    args = []
     for i in range(0, h, patch_size_y):
         for j in range(0, w, patch_size_x):
-            if i != 400 or j != 300:
-                continue
-            i_end = i + patch_size_y
-            j_end = j + patch_size_x
-            fg_mask_patch = fg_mask[i:i_end, j:j_end]
-            if not np.any(fg_mask_patch):
-                continue
-            print(i, j)
-            x0_patch = normals0[i:i_end, j:j_end, :]
-            mnf_patch = mnf[i:i_end, j:j_end]
-            mf_patch = mf[i:i_end, j:j_end]
-            res = least_squares(calc_cost_wrapper, x0_patch.flatten(), method="trf", jac_sparsity=jac_sparsity_patch, args=(x0_patch.flatten(), lp, mnf_patch, mf_patch, fg_mask_patch))
-            if res.success:
-                count = 0
-                print("num evaluations:", res.nfev)
-                normals_patch = np.reshape(res.x, (patch_size_y*patch_size_x, 3))
-                fg_pix_idxs = np.argwhere(fg_mask_patch.flatten()).flatten() # (p, )
-                normals_patch[fg_pix_idxs, :] = np.ones_like(normals_patch[fg_pix_idxs, :])
-                normals_patch = np.reshape(normals_patch, (patch_size_y, patch_size_x, 3))
-                residuals_patch = np.reshape(res.fun, (patch_size_y, patch_size_x))
-                plt.subplot(1, 2, 1)
-                plt.imshow(normals_patch)
-                plt.title("estimated")
-                plt.axis("off")
-                plt.subplot(1, 2, 2)
-                plt.imshow(x0_patch)
-                plt.title("initial")
-                plt.axis("off")
-                plt.show()
-                plt.close("all")
-                quit()
-                normals[i:i_end, j:j_end, :] = normals_patch
-                residuals[i:i_end, j:j_end] = residuals_patch
-            else:
-                print("error")
-    residuals[fg_mask==False] = 0.0
-    print(residuals[fg_mask==False].max(), residuals[fg_mask==False].min(), residuals[fg_mask==False].mean())
-    # print(res.fun)
-    # print(res.cost)
+            args.append((i, j))
+    ret_data_all = list(tqdm(pool.imap_unordered(optimize_patch, args), total=len(args)))
+    # assemble
+    for ret in ret_data_all:
+        i, j = ret[0]
+        i_end = i + patch_size_y
+        j_end = j + patch_size_x
+        normals[i:i_end, j:j_end, :] = ret[1]
+
+    norm = np.linalg.norm(normals, axis=2).reshape((h, w, 1))
+    denom = np.where(norm == 0, 1e-5, norm)
+    normals = np.where(norm == 0, 0.0, normals/denom)
     return normals
 
 def run(normals0, mnf, mf, fg_mask):
@@ -283,32 +288,15 @@ def run(normals0, mnf, mf, fg_mask):
 
     # Step 2: optimize energy function
     normals = optimize(normals0, lp, mnf, mf, fg_mask)
-    plt.imshow(normals)
+    norm = np.linalg.norm(normals, axis=2).reshape((h, w, 1))
+    normals_vis = (normals + 1) / 2.0
+    normals_vis = np.where(norm == 0, 1.0, normals_vis)
+    plt.imshow(normals_vis)
     plt.show()
     plt.close("all")
 
-def fun_rosenbrock(x):
-    return 10.0 * (x[1] - x[0]**2)+ (3*x[2]+1.0)**2
 
 if __name__ == "__main__":
-    c = np.ones((1, 3))
-    t_start = time.time()
-    for i in range(800):
-        for j in range(600):
-            if j % 50 == 0:
-                print(i, j)
-            #x0 = np.array([2.0, 2.0, 2.0]) + (np.random.random(3)-0.5)*3
-            x0 = [1.3, 0.7, 0.8, 1.9, 1.2]
-            ops = {'maxiter': 10, "gtol":1e-2}
-            res = minimize(rosen, x0, method="BFGS", tol=1e-3, options=ops)
-            print(res.success)
-            print(res.status)
-            print(res.x)
-            print(res.fun)
-            print(res.nit)
-            quit()
-    print(time.time() - t_start)
-    quit()
     img_nf = imread("data/bunny_nf.png").astype(np.float64) / 255.0
     img_f = imread("data/bunny_f.png").astype(np.float64) / 255.0
     img_nf = lRGB2XYZ(gamma_decode(img_nf))[:,:,1]
@@ -332,7 +320,7 @@ if __name__ == "__main__":
     normals_vis = (normals0 + 1) / 2.0
     normals_vis = np.where(norm == 0, 1.0, normals_vis)
     #print(normals_vis.max(), normals_vis.min())
-    plt.imshow(normals_vis, cmap="gray")
+    plt.imshow(normals_vis)
     plt.title("initial normal map")
     plt.axis("off")
     plt.show()
