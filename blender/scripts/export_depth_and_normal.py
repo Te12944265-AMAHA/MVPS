@@ -36,19 +36,20 @@ def get_normal():
     dmap = np.fliplr(dmap)
     return dmap
 
-save_dir = "/home/tina/Documents/courses/15862/MVPS/blender/test"
-os.makedirs(save_dir, exist_ok=True)
+if __name__ == "__main__":
+    save_dir = "/home/tina/Documents/courses/15862/MVPS/blender/test"
+    os.makedirs(save_dir, exist_ok=True)
 
-camera_names = [cam.name for cam in bpy.data.cameras]
-for camera_name in camera_names:
-    bpy.context.scene.camera = bpy.context.scene.objects[camera_name]
-    nmap = get_normal()
-    h, w, _ = nmap.shape
-    nmap = np.where(np.linalg.norm(nmap, axis=2).reshape((h, w, 1)) == 0, 1.0, nmap)
-    nmap_vis = (nmap + 1) / 2.0
-    nmap_vis = np.clip(nmap_vis * 255.0, 0.0, 255.0).astype(np.uint8)
-    imsave(os.path.join(save_dir, f"{camera_name}_normal_map.png"), nmap_vis)
+    camera_names = [cam.name for cam in bpy.data.cameras]
+    for camera_name in camera_names:
+        bpy.context.scene.camera = bpy.context.scene.objects[camera_name]
+        nmap = get_normal()
+        h, w, _ = nmap.shape
+        nmap = np.where(np.linalg.norm(nmap, axis=2).reshape((h, w, 1)) == 0, 1.0, nmap)
+        nmap_vis = (nmap + 1) / 2.0
+        nmap_vis = np.clip(nmap_vis * 255.0, 0.0, 255.0).astype(np.uint8)
+        imsave(os.path.join(save_dir, f"{camera_name}_normal_map.png"), nmap_vis)
 
-    dmap = get_depth()
-    dmap = np.clip(dmap * 255.0, 0.0, 255.0).astype(np.uint8)
-    imsave(os.path.join(save_dir, f"{camera_name}_depth_map.png"), dmap)
+        dmap = get_depth()
+        dmap = np.clip(dmap * 255.0, 0.0, 255.0).astype(np.uint8)
+        imsave(os.path.join(save_dir, f"{camera_name}_depth_map.png"), dmap)

@@ -23,7 +23,7 @@ from multiprocessing import Pool
 from tqdm import tqdm
 
 lamb1 = 0.1
-lamb2 = 10.0
+lamb2 = 0.1
 
 patch_size_x = 25
 patch_size_y = 25
@@ -275,9 +275,6 @@ def optimize(_normals0, _lp, _mnf, _mf, _fg_mask):
         j_end = j + patch_size_x
         normals[i:i_end, j:j_end, :] = ret[1]
 
-    norm = np.linalg.norm(normals, axis=2).reshape((h, w, 1))
-    denom = np.where(norm == 0, 1e-5, norm)
-    normals = np.where(norm == 0, 0.0, normals/denom)
     return normals
 
 def run(normals0, mnf, mf, fg_mask):
@@ -289,12 +286,36 @@ def run(normals0, mnf, mf, fg_mask):
     # Step 2: optimize energy function
     normals = optimize(normals0, lp, mnf, mf, fg_mask)
     norm = np.linalg.norm(normals, axis=2).reshape((h, w, 1))
+    # check which pixels has normal magnitude that's very off
+    diff = norm.squeeze() - np.ones_like(norm.squeeze())
+    diff = np.where(norm.squeeze() == 0, 0.0, diff)
+    plt.imshow(diff)
+    plt.title("normal magnitude diff")
+    plt.axis("off")
+    plt.show()
+    plt.close("all")
+    denom = np.where(norm == 0, 1e-5, norm)
+    normals = np.where(norm == 0, 0.0, normals/denom)
+
     normals_vis = (normals + 1) / 2.0
     normals_vis = np.where(norm == 0, 1.0, normals_vis)
     plt.imshow(normals_vis)
+    plt.title("estimated")
+    plt.axis("off")
     plt.show()
     plt.close("all")
 
+    # angular error
+    error = np.arctan2(np.linalg.norm(np.cross(normals0,normals), axis=-1), np.sum(normals0*normals, axis=-1))
+    mean_ang_err = np.mean(error[fg_mask])
+    max_ang_err = np.max(error[fg_mask])
+    min_ang_err = np.min(error[fg_mask])
+    print(mean_ang_err, max_ang_err, min_ang_err)
+    plt.imshow(error)
+    plt.title("angular error")
+    plt.axis("off")
+    plt.show()
+    plt.close("all")
 
 if __name__ == "__main__":
     img_nf = imread("data/bunny_nf.png").astype(np.float64) / 255.0
