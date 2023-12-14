@@ -2,5 +2,5 @@
 **/__pycache__/
 datasets/
 outputs/
-**/generated/
-**/generated_coarse/
+blender/generated/
+blender/generated_coarse/
