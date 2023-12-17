@@ -21,8 +21,9 @@ from scipy.linalg import lstsq
 import time
 from multiprocessing import Pool
 from tqdm import tqdm
+from scipy.ndimage import gaussian_filter
 
-lamb1 = 0.1
+lamb1 = 0.001
 lamb2 = 0.1
 
 patch_size_x = 25
@@ -285,37 +286,89 @@ def run(normals0, mnf, mf, fg_mask):
 
     # Step 2: optimize energy function
     normals = optimize(normals0, lp, mnf, mf, fg_mask)
+    h, w = mnf.shape
     norm = np.linalg.norm(normals, axis=2).reshape((h, w, 1))
     # check which pixels has normal magnitude that's very off
-    diff = norm.squeeze() - np.ones_like(norm.squeeze())
-    diff = np.where(norm.squeeze() == 0, 0.0, diff)
-    plt.imshow(diff)
-    plt.title("normal magnitude diff")
-    plt.axis("off")
-    plt.show()
-    plt.close("all")
+    # diff = norm.squeeze() - np.ones_like(norm.squeeze())
+    # diff = np.where(norm.squeeze() == 0, 0.0, diff)
+    # plt.imshow(diff)
+    # plt.title("normal magnitude diff")
+    # plt.axis("off")
+    # plt.show()
+    # plt.close("all")
     denom = np.where(norm == 0, 1e-5, norm)
     normals = np.where(norm == 0, 0.0, normals/denom)
 
-    normals_vis = (normals + 1) / 2.0
-    normals_vis = np.where(norm == 0, 1.0, normals_vis)
-    plt.imshow(normals_vis)
-    plt.title("estimated")
-    plt.axis("off")
-    plt.show()
-    plt.close("all")
+    return lp, normals
 
-    # angular error
-    error = np.arctan2(np.linalg.norm(np.cross(normals0,normals), axis=-1), np.sum(normals0*normals, axis=-1))
-    mean_ang_err = np.mean(error[fg_mask])
-    max_ang_err = np.max(error[fg_mask])
-    min_ang_err = np.min(error[fg_mask])
-    print(mean_ang_err, max_ang_err, min_ang_err)
-    plt.imshow(error)
-    plt.title("angular error")
-    plt.axis("off")
-    plt.show()
-    plt.close("all")
+
+def run_one_view(obj_name, view_id, data_folder="datasets"):
+    img_id = f"Camera.{view_id:03d}"
+    print(f"Processing {img_id}...")
+    img_nf_path = f"{data_folder}/{obj_name}/generated/no_flash/{img_id}.png"
+    img_f_path = f"{data_folder}/{obj_name}/generated/flash/{img_id}.png"
+    cam_matrix_save_path = f"{data_folder}/{obj_name}/generated_coarse/cam/{img_id}.npz"
+    maps_save_path = f"{data_folder}/{obj_name}/generated_coarse/maps/{img_id}.npz"
+
+    img_nf_in = imread(img_nf_path).astype(np.float64) / 255.0
+    img_f_in = imread(img_f_path).astype(np.float64) / 255.0
+    img_nf = lRGB2XYZ(gamma_decode(img_nf_in))[:,:,1]
+    img_f = lRGB2XYZ(gamma_decode(img_f_in))[:,:,1]
+    with np.load(cam_matrix_save_path) as X:
+        K, RT = [X[i].astype(np.float64) for i in ("K", "RT")]
+    #print(RT)
+
+    # coarse normal and depth
+    with np.load(maps_save_path) as X:
+        normals0, depth_map0 = [X[i].astype(np.float64) for i in ("normal_map", "depth_map")]
+    h, w, _ = normals0.shape
+
+    # Find fg mask, normalize, transform to camera frame
+    norm = np.linalg.norm(normals0, axis=2).reshape((h, w, 1))
+    fg_mask = np.where(norm == 0, False, True).squeeze()
+    denom = np.where(norm == 0, 1e-5, norm)
+    normals0 = np.where(norm == 0, 0.0, normals0/denom)
+    normals0 = (RT[:3,:3] @ normals0.reshape((h*w, 3)).T).T.reshape((h, w, 3))
+
+    # plt.imshow((normals0 + 1.0)/2.0)
+    # plt.title("normal0 map")
+    # plt.axis("off")
+    # plt.show()
+    # plt.close("all")
+
+    # invert normals0
+    #normals0 = -normals0
+
+    # normals0 = gaussian_filter(normals0, sigma=1.0)
+    # norm_b = np.linalg.norm(normals0, axis=2).reshape((h, w, 1))
+    # denom = np.where(fg_mask.reshape((h,w,1)), norm_b, 1e-5)
+    # normals0 = np.where(fg_mask.reshape((h,w,1)), normals0/denom, 0.0)
+    # plt.imshow((normals0 + 1.0)/2.0)
+    # plt.title("normal0 map")
+    # plt.axis("off")
+    # plt.show()
+    # plt.close("all")
+
+    lp, normals = run(normals0, img_nf, img_f, fg_mask)
+
+    visualize_normals(normals, fg_mask)
+
+    return lp, normals, fg_mask, normals0, img_nf_in, img_f_in
+
+def visualize_normals(normals, fg_mask, vis=True):
+    h, w, _ = normals.shape
+    normals_vis = (normals + 1) / 2.0
+    normals_vis = np.where(fg_mask.reshape((h, w, 1)), normals_vis, 1.0)
+    normals_vis = np.clip(normals_vis, a_min=0.0, a_max=1.0)
+    #print(normals_vis.max(), normals_vis.min())
+    if vis:
+        plt.imshow(normals_vis)
+        plt.title("normal map")
+        plt.axis("off")
+        plt.show()
+        plt.close("all")
+    return normals_vis
+
 
 if __name__ == "__main__":
     img_nf = imread("data/bunny_nf.png").astype(np.float64) / 255.0

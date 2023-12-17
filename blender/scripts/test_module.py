@@ -19,7 +19,7 @@ from export_depth_and_normal import get_normal, get_depth
 
 if __name__ == "__main__":
     base_dir = "/home/tina/Documents/courses/15862/MVPS"
-    save_dir = f"{base_dir}/blender/generated_coarse"
+    save_dir = f"{base_dir}/blender/generated"
     f_dir = f"{save_dir}/flash"
     nf_dir = f"{save_dir}/no_flash"
     cam_dir = f"{save_dir}/cam"
