@@ -23,7 +23,9 @@ from multiprocessing import Pool
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter
 
-lamb1 = 0.001
+from configs import imgs_dir, cams_dir, maps_dir, bg_val
+
+lamb1 = 0.1
 lamb2 = 0.1
 
 patch_size_x = 25
@@ -279,8 +281,17 @@ def optimize(_normals0, _lp, _mnf, _mf, _fg_mask):
     return normals
 
 def run(normals0, mnf, mf, fg_mask):
+    """
+    ``normals_t`` is only for experiment
+    """
     # Step 1: compute global lighting
     lp = compute_global_lighting(normals0, mnf, mf, fg_mask)
+    # lp_t = compute_global_lighting(normals_t, mnf, mf, fg_mask)
+    # print("lp:")
+    # print(lp)
+    # print(lp_t)
+    # print(lp_t / lp)
+    # print(np.linalg.norm(lp_t-lp))
     # print(lp)
     # quit()
 
@@ -302,21 +313,21 @@ def run(normals0, mnf, mf, fg_mask):
     return lp, normals
 
 
-def run_one_view(obj_name, view_id, data_folder="datasets"):
+def run_one_view(view_id, fg_mask_in=None):
     img_id = f"Camera.{view_id:03d}"
     print(f"Processing {img_id}...")
-    img_nf_path = f"{data_folder}/{obj_name}/generated/no_flash/{img_id}.png"
-    img_f_path = f"{data_folder}/{obj_name}/generated/flash/{img_id}.png"
-    cam_matrix_save_path = f"{data_folder}/{obj_name}/generated_coarse/cam/{img_id}.npz"
-    maps_save_path = f"{data_folder}/{obj_name}/generated_coarse/maps/{img_id}.npz"
+    img_nf_path = f"{imgs_dir}/no_flash/{img_id}.png"
+    img_f_path = f"{imgs_dir}/flash/{img_id}.png"
+    #cam_matrix_save_path = f"{cams_dir}/{img_id}.npz"
+    maps_save_path = f"{maps_dir}/{img_id}.npz"
 
     img_nf_in = imread(img_nf_path).astype(np.float64) / 255.0
     img_f_in = imread(img_f_path).astype(np.float64) / 255.0
     img_nf = lRGB2XYZ(gamma_decode(img_nf_in))[:,:,1]
     img_f = lRGB2XYZ(gamma_decode(img_f_in))[:,:,1]
-    with np.load(cam_matrix_save_path) as X:
-        K, RT = [X[i].astype(np.float64) for i in ("K", "RT")]
-    #print(RT)
+    # with np.load(cam_matrix_save_path) as X:
+    #     K, RT = [X[i].astype(np.float64) for i in ("K", "RT")]
+
 
     # coarse normal and depth
     with np.load(maps_save_path) as X:
@@ -325,16 +336,25 @@ def run_one_view(obj_name, view_id, data_folder="datasets"):
 
     # Find fg mask, normalize, transform to camera frame
     norm = np.linalg.norm(normals0, axis=2).reshape((h, w, 1))
-    fg_mask = np.where(norm == 0, False, True).squeeze()
+
+    # using pixel value to find the bg and fg
+    #fg_mask = np.all(np.where(np.abs(img_f_in - bg_val) < 1e-5, False, True), axis=2)
+    #fg_mask = np.where(norm == 0, False, True).squeeze()
+    if fg_mask_in is None:
+        fg_mask = np.where(norm == 0, False, True).squeeze()
+    else:
+        fg_mask = copy.deepcopy(fg_mask_in)
     denom = np.where(norm == 0, 1e-5, norm)
     normals0 = np.where(norm == 0, 0.0, normals0/denom)
-    normals0 = (RT[:3,:3] @ normals0.reshape((h*w, 3)).T).T.reshape((h, w, 3))
+    
+    # normals0 = (RT[:3,:3] @ normals0.reshape((h*w, 3)).T).T.reshape((h, w, 3))
 
-    # plt.imshow((normals0 + 1.0)/2.0)
-    # plt.title("normal0 map")
+    # plt.imshow(fg_mask)
+    # plt.title("fg mask")
     # plt.axis("off")
     # plt.show()
     # plt.close("all")
+    # quit()
 
     # invert normals0
     #normals0 = -normals0
@@ -375,34 +395,44 @@ if __name__ == "__main__":
     img_f = imread("data/bunny_f.png").astype(np.float64) / 255.0
     img_nf = lRGB2XYZ(gamma_decode(img_nf))[:,:,1]
     img_f = lRGB2XYZ(gamma_decode(img_f))[:,:,1]
-    cam_matrix_save_path = "data/Camera.002_matrix.npz"
-    maps_save_path = "data/Camera.002_maps.npz"
-    with np.load(cam_matrix_save_path) as X:
-        K, RT = [X[i].astype(np.float64) for i in ("K", "RT")]
-    #print(RT)
-    with np.load(maps_save_path) as X:
-        normals0, depth_map = [X[i].astype(np.float64) for i in ("normal_map", "depth_map")]
-    h, w, _ = normals0.shape
-    #print(normals0.max(), normals0.min())
-    norm = np.linalg.norm(normals0, axis=2).reshape((h, w, 1))
-    #print(norm.max(), norm.min())
-    fg_mask = np.where(norm == 0, False, True).squeeze()
-    denom = np.where(norm == 0, 1e-5, norm)
-    normals0 = np.where(norm == 0, 0.0, normals0/denom)
-    normals0 = (RT[:3,:3] @ normals0.reshape((h*w, 3)).T).T.reshape((h, w, 3))
-    print(normals0[400,300,:])
-    normals_vis = (normals0 + 1) / 2.0
-    normals_vis = np.where(norm == 0, 1.0, normals_vis)
-    #print(normals_vis.max(), normals_vis.min())
-    plt.imshow(normals_vis)
-    plt.title("initial normal map")
-    plt.axis("off")
-    plt.show()
-    plt.close("all")
-    run(normals0, img_nf, img_f, fg_mask)
-    # r = get_ratio_img(img_nf, img_f)
-    # plt.imshow(r, cmap="gray")
-    # plt.title("ratio image")
+    # cam_matrix_save_path = "data/Camera.002_matrix.npz"
+    # maps_save_path = "data/Camera.002_maps.npz"
+    # with np.load(cam_matrix_save_path) as X:
+    #     K, RT = [X[i].astype(np.float64) for i in ("K", "RT")]
+    # #print(RT)
+    # with np.load(maps_save_path) as X:
+    #     normals0, depth_map = [X[i].astype(np.float64) for i in ("normal_map", "depth_map")]
+    # h, w, _ = normals0.shape
+    # #print(normals0.max(), normals0.min())
+    # norm = np.linalg.norm(normals0, axis=2).reshape((h, w, 1))
+    # #print(norm.max(), norm.min())
+    # fg_mask = np.where(norm == 0, False, True).squeeze()
+    # denom = np.where(norm == 0, 1e-5, norm)
+    # normals0 = np.where(norm == 0, 0.0, normals0/denom)
+    # normals0 = (RT[:3,:3] @ normals0.reshape((h*w, 3)).T).T.reshape((h, w, 3))
+    # print(normals0[400,300,:])
+    # normals_vis = (normals0 + 1) / 2.0
+    # normals_vis = np.where(norm == 0, 1.0, normals_vis)
+    # #print(normals_vis.max(), normals_vis.min())
+    # plt.imshow(normals_vis)
+    # plt.title("initial normal map")
     # plt.axis("off")
     # plt.show()
     # plt.close("all")
+    # run(normals0, img_nf, img_f, fg_mask)
+    fo = img_f - img_nf
+    r = get_ratio_img(img_nf, img_f)
+    plt.subplot(1, 3, 1)
+    plt.imshow(img_nf, cmap="gray")
+    plt.title("a) no-flash image")
+    plt.axis("off")
+    plt.subplot(1, 3, 2)
+    plt.imshow(fo, cmap="gray")
+    plt.title("b) flash-only image")
+    plt.axis("off")
+    plt.subplot(1, 3, 3)
+    plt.imshow(r, cmap="gray")
+    plt.title("c) ratio image")
+    plt.axis("off")
+    plt.show()
+    plt.close("all")

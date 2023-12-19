@@ -51,6 +51,7 @@ if __name__ == "__main__":
         
         # get rendered flash and no-flash views
         num = camera_name.split(".")[-1]
+        
         light_name = f"Point.{num}"
         light = bpy.data.objects[light_name]
         for light_str in ["flash", "no_flash"]:

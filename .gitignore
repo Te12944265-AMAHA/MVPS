@@ -4,3 +4,4 @@ datasets/
 outputs/
 blender/generated/
 blender/generated_coarse/
+*.zip
